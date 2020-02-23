@@ -23,6 +23,7 @@ static struct option options[] = {
     {"include-unpolished", no_argument, 0, 'u'},
     {"fragment-correction", no_argument, 0, 'f'},
     {"window-length", required_argument, 0, 'w'},
+    {"window-overlap-percentage", required_argument, 0, 'p'},
     {"quality-threshold", required_argument, 0, 'q'},
     {"error-threshold", required_argument, 0, 'e'},
     {"no-trimming", no_argument, 0, 'T'},
@@ -47,6 +48,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> input_paths;
 
     uint32_t window_length = 500;
+    double overlap_percentage = 0.0;
     double quality_threshold = 10.0;
     double error_threshold = 0.3;
     bool trim = true;
@@ -63,7 +65,7 @@ int main(int argc, char** argv) {
     uint32_t cudaaligner_batches = 0;
     bool cuda_banded_alignment = false;
 
-    std::string optstring = "ufw:q:e:m:x:g:t:h";
+    std::string optstring = "ufw:p:q:e:m:x:g:t:h";
 #ifdef CUDA_ENABLED
     optstring += "bc::";
 #endif
@@ -80,6 +82,9 @@ int main(int argc, char** argv) {
             case 'w':
                 window_length = atoi(optarg);
                 break;
+            case 'p':
+            	overlap_percentage = atof(optarg);
+            	break;
             case 'q':
                 quality_threshold = atof(optarg);
                 break;
@@ -145,7 +150,7 @@ int main(int argc, char** argv) {
 
     auto polisher = racon::createPolisher(input_paths[0], input_paths[1],
         input_paths[2], type == 0 ? racon::PolisherType::kC :
-        racon::PolisherType::kF, window_length, quality_threshold,
+        racon::PolisherType::kF, window_length, overlap_percentage, quality_threshold,
         error_threshold, trim, match, mismatch, gap, num_threads,
         cudapoa_batches, cuda_banded_alignment, cudaaligner_batches);
 
@@ -184,6 +189,9 @@ void help() {
         "        -w, --window-length <int>\n"
         "            default: 500\n"
         "            size of window on which POA is performed\n"
+        "        -p, --window-overlap-percentage <float>\n"
+        "            default: 0.0\n"
+        "            adjacent window overlap percentage\n"
         "        -q, --quality-threshold <float>\n"
         "            default: 10.0\n"
         "            threshold for average base quality of windows used in POA\n"

@@ -41,10 +41,11 @@ enum class PolisherType {
 class Polisher;
 std::unique_ptr<Polisher> createPolisher(const std::string& sequences_path,
     const std::string& overlaps_path, const std::string& target_path,
-    PolisherType type, uint32_t window_length, double quality_threshold,
-    double error_threshold, bool trim, int8_t match, int8_t mismatch, int8_t gap,
-    uint32_t num_threads, uint32_t cuda_batches = 0,
-    bool cuda_banded_alignment = false, uint32_t cudaaligner_batches = 0);
+    PolisherType type, uint32_t window_length, double overlap_percentage, 
+    double quality_threshold, double error_threshold, bool trim, 
+    int8_t match, int8_t mismatch, int8_t gap, uint32_t num_threads, 
+    uint32_t cuda_batches = 0, bool cuda_banded_alignment = false, 
+    uint32_t cudaaligner_batches = 0);
 
 class Polisher {
 public:
@@ -57,18 +58,18 @@ public:
 
     friend std::unique_ptr<Polisher> createPolisher(const std::string& sequences_path,
         const std::string& overlaps_path, const std::string& target_path,
-        PolisherType type, uint32_t window_length, double quality_threshold,
-        double error_threshold, bool trim, int8_t match, int8_t mismatch, int8_t gap,
-        uint32_t num_threads, uint32_t cuda_batches, bool cuda_banded_alignment,
-        uint32_t cudaaligner_batches);
+        PolisherType type, uint32_t window_length, double overlap_percentage, 
+        double quality_threshold, double error_threshold, bool trim, 
+        int8_t match, int8_t mismatch, int8_t gap, uint32_t num_threads, 
+        uint32_t cuda_batches, bool cuda_banded_alignment, uint32_t cudaaligner_batches);
 
 protected:
     Polisher(std::unique_ptr<bioparser::Parser<Sequence>> sparser,
         std::unique_ptr<bioparser::Parser<Overlap>> oparser,
         std::unique_ptr<bioparser::Parser<Sequence>> tparser,
-        PolisherType type, uint32_t window_length, double quality_threshold,
-        double error_threshold, bool trim, int8_t match, int8_t mismatch, int8_t gap,
-        uint32_t num_threads);
+        PolisherType type, uint32_t window_length, double overlap_percentage, 
+        double quality_threshold, double error_threshold, bool trim, 
+        int8_t match, int8_t mismatch, int8_t gap, uint32_t num_threads);
     Polisher(const Polisher&) = delete;
     const Polisher& operator=(const Polisher&) = delete;
     virtual void find_overlap_breaking_points(std::vector<std::unique_ptr<Overlap>>& overlaps);
@@ -88,6 +89,7 @@ protected:
     std::string dummy_quality_;
 
     uint32_t window_length_;
+    double overlap_percentage_;
     std::vector<std::shared_ptr<Window>> windows_;
 
     std::unique_ptr<thread_pool::ThreadPool> thread_pool_;
