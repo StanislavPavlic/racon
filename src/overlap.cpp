@@ -232,7 +232,7 @@ void Overlap::find_breaking_points_from_cigar(uint32_t window_length, double p) 
     for (uint32_t i = 0; i < end; i += window_length) {
         if (i > t_begin_) {
             if (i > t_begin_ + offset) {
-                window_starts.emplace_back(i - offset - 1);
+                window_starts.emplace_back(i - offset);
             }
             window_ends.emplace_back(i + offset - 1);
         }
@@ -260,7 +260,7 @@ void Overlap::find_breaking_points_from_cigar(uint32_t window_length, double p) 
                     first_match.first = t_ptr;
                     first_match.second = q_ptr;
                 }
-                if (t_ptr >= window_starts[w] && !found_first_match_n) {
+                if (w < window_starts.size() && t_ptr >= window_starts[w] && !found_first_match_n) {
                     found_first_match_n = true;
                     first_match_n.first = t_ptr;
                     first_match_n.second = q_ptr;
