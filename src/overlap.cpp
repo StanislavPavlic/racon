@@ -176,8 +176,8 @@ void Overlap::transmute(const std::vector<std::unique_ptr<Sequence>>& sequences,
     is_transmuted_ = true;
 }
 
-void Overlap::find_breaking_points(const std::vector<std::unique_ptr<Sequence>>& sequences,
-    uint32_t window_length) {
+void Overlap::find_breaking_points(const std::vector<std::unique_ptr<Sequence>> &sequences, uint32_t window_length,
+                                   double p) {
 
     if (!is_transmuted_) {
         fprintf(stderr, "[racon::Overlap::find_breaking_points] error: "
@@ -197,7 +197,7 @@ void Overlap::find_breaking_points(const std::vector<std::unique_ptr<Sequence>>&
         align_overlaps(q, q_end_ - q_begin_, t, t_end_ - t_begin_);
     }
 
-    find_breaking_points_from_cigar(window_length);
+    find_breaking_points_from_cigar(window_length, p);
 
     std::string().swap(cigar_);
 }
@@ -223,20 +223,27 @@ void Overlap::align_overlaps(const char* q, uint32_t q_length, const char* t, ui
     edlibFreeAlignResult(result);
 }
 
-void Overlap::find_breaking_points_from_cigar(uint32_t window_length)
-{
+void Overlap::find_breaking_points_from_cigar(uint32_t window_length, double p) {
     // find breaking points from cigar
+    std::vector<int32_t> window_starts;
     std::vector<int32_t> window_ends;
-    for (uint32_t i = 0; i < t_end_; i += window_length) {
+    int32_t offset = window_length * p;
+    uint32_t end = t_end_ - offset;
+    for (uint32_t i = 0; i < end; i += window_length) {
         if (i > t_begin_) {
-            window_ends.emplace_back(i - 1);
+            if (i > t_begin_ + offset) {
+                window_starts.emplace_back(i - offset - 1);
+            }
+            window_ends.emplace_back(i + offset - 1);
         }
     }
     window_ends.emplace_back(t_end_ - 1);
 
     uint32_t w = 0;
     bool found_first_match = false;
-    std::pair<uint32_t, uint32_t> first_match = {0, 0}, last_match = {0, 0};
+    bool found_first_match_n = false;
+    std::pair<uint32_t, uint32_t> first_match = {0, 0}, last_match = {0, 0},
+                                  first_match_n = {0, 0};
 
     int32_t q_ptr = (strand_ ? (q_length_ - q_end_) : q_begin_) - 1;
     int32_t t_ptr = t_begin_ - 1;
@@ -244,7 +251,6 @@ void Overlap::find_breaking_points_from_cigar(uint32_t window_length)
     for (uint32_t i = 0, j = 0; i < cigar_.size(); ++i) {
         if (cigar_[i] == 'M' || cigar_[i] == '=' || cigar_[i] == 'X') {
             uint32_t k = 0, num_bases = atoi(&cigar_[j]);
-            j = i + 1;
             while (k < num_bases) {
                 ++q_ptr;
                 ++t_ptr;
@@ -254,25 +260,34 @@ void Overlap::find_breaking_points_from_cigar(uint32_t window_length)
                     first_match.first = t_ptr;
                     first_match.second = q_ptr;
                 }
+                if (t_ptr >= window_starts[w] && !found_first_match_n) {
+                    found_first_match_n = true;
+                    first_match_n.first = t_ptr;
+                    first_match_n.second = q_ptr;
+                }
                 last_match.first = t_ptr + 1;
                 last_match.second = q_ptr + 1;
                 if (t_ptr == window_ends[w]) {
-                    if (found_first_match) {
-                        breaking_points_.emplace_back(first_match);
-                        breaking_points_.emplace_back(last_match);
+                    breaking_points_.emplace_back(first_match);
+                    breaking_points_.emplace_back(last_match);
+                    if (found_first_match_n) {
+                        first_match = first_match_n;
+                        found_first_match = found_first_match_n;
+                        found_first_match_n = false;
+                    } else {
+                        found_first_match = false;
                     }
-                    found_first_match = false;
                     ++w;
                 }
 
                 ++k;
             }
+            j = i + 1;
         } else if (cigar_[i] == 'I') {
             q_ptr += atoi(&cigar_[j]);
             j = i + 1;
         } else if (cigar_[i] == 'D' || cigar_[i] == 'N') {
             uint32_t k = 0, num_bases = atoi(&cigar_[j]);
-            j = i + 1;
             while (k < num_bases) {
                 ++t_ptr;
                 if (t_ptr == window_ends[w]) {
@@ -280,11 +295,18 @@ void Overlap::find_breaking_points_from_cigar(uint32_t window_length)
                         breaking_points_.emplace_back(first_match);
                         breaking_points_.emplace_back(last_match);
                     }
-                    found_first_match = false;
+                    if (found_first_match_n) {
+                        first_match = first_match_n;
+                        found_first_match = found_first_match_n;
+                        found_first_match_n = false;
+                    } else {
+                        found_first_match = false;
+                    }
                     ++w;
                 }
                 ++k;
             }
+            j = i + 1;
         } else if (cigar_[i] == 'S' || cigar_[i] == 'H' || cigar_[i] == 'P') {
             j = i + 1;
         }

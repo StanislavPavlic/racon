@@ -464,7 +464,7 @@ void Polisher::find_overlap_breaking_points(std::vector<std::unique_ptr<Overlap>
     for (uint64_t i = 0; i < overlaps.size(); ++i) {
         thread_futures.emplace_back(thread_pool_->submit(
             [&](uint64_t j) -> void {
-                overlaps[j]->find_breaking_points(sequences_, window_length_);
+                overlaps[j]->find_breaking_points(sequences_, window_length_, overlap_percentage_);
             }, i));
     }
 

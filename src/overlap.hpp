@@ -65,8 +65,8 @@ public:
         return breaking_points_;
     }
 
-    void find_breaking_points(const std::vector<std::unique_ptr<Sequence>>& sequences,
-        uint32_t window_length);
+    void find_breaking_points(const std::vector<std::unique_ptr<Sequence>> &sequences, uint32_t window_length,
+                              double p);
 
     friend bioparser::MhapParser<Overlap>;
     friend bioparser::PafParser<Overlap>;
@@ -83,7 +83,7 @@ private:
         uint32_t q_begin, uint32_t q_end, char orientation, const char* t_name,
         uint32_t t_name_length, uint32_t t_length, uint32_t t_begin,
         uint32_t t_end, uint32_t matching_bases, uint32_t overlap_length,
-        uint32_t maping_quality);
+        uint32_t mapping_quality);
     Overlap(const char* q_name, uint32_t q_name_length, uint32_t flag,
         const char* t_name, uint32_t t_name_length, uint32_t t_begin,
         uint32_t mapping_quality, const char* cigar, uint32_t cigar_length,
@@ -93,7 +93,7 @@ private:
     Overlap();
     Overlap(const Overlap&) = delete;
     const Overlap& operator=(const Overlap&) = delete;
-    virtual void find_breaking_points_from_cigar(uint32_t window_length);
+    virtual void find_breaking_points_from_cigar(uint32_t window_length, double p);
     virtual void align_overlaps(const char* q, uint32_t q_len, const char* t, uint32_t t_len);
 
     std::string q_name_;
