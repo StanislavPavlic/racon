@@ -380,18 +380,25 @@ void Polisher::initialize() {
 
     logger_->log();
 
+    uint32_t offset = window_length_ * overlap_percentage_;
+
     std::vector<uint64_t> id_to_first_window_id(targets_size + 1, 0);
     for (uint64_t i = 0; i < targets_size; ++i) {
         uint32_t k = 0;
         for (uint32_t j = 0; j < sequences_[i]->data().size(); j += window_length_, ++k) {
 
-            uint32_t length = std::min(j + window_length_,
-                static_cast<uint32_t>(sequences_[i]->data().size())) - j;
+            uint32_t start = j, expansion = offset;
+            if (j > 0) {
+                start -= offset;
+                expansion += offset;
+            }
+            uint32_t length = std::min(start + window_length_ + expansion,
+                static_cast<uint32_t>(sequences_[i]->data().size())) - start;
 
             windows_.emplace_back(createWindow(i, k, window_type,
-                &(sequences_[i]->data()[j]), length,
+                &(sequences_[i]->data()[start]), length,
                 sequences_[i]->quality().empty() ? &(dummy_quality_[0]) :
-                &(sequences_[i]->quality()[j]), length));
+                &(sequences_[i]->quality()[start]), length));
         }
 
         id_to_first_window_id[i + 1] = id_to_first_window_id[i] + k;
@@ -405,6 +412,8 @@ void Polisher::initialize() {
 
         const auto& sequence = sequences_[overlaps[i]->q_id()];
         const auto& breaking_points = overlaps[i]->breaking_points();
+
+        uint64_t prev_window_id = -1;
 
         for (uint32_t j = 0; j < breaking_points.size(); j += 2) {
             if (breaking_points[j + 1].second - breaking_points[j].second < 0.02 * window_length_) {
@@ -423,14 +432,40 @@ void Polisher::initialize() {
                 average_quality /= breaking_points[j + 1].second - breaking_points[j].second;
 
                 if (average_quality < quality_threshold_) {
+                    uint64_t bpw1 = breaking_points[j].first / window_length_;
+                    uint64_t bpw2 = breaking_points[j + 1].first / window_length_;
+
+                    uint64_t prev_window_id_n = id_to_first_window_id[overlaps[i]->t_id()] + bpw1;
+
+                    if (bpw2 - bpw1 > 1) {
+                        prev_window_id_n += 1;
+                    }
+
+                    if (prev_window_id_n == prev_window_id) {
+                        prev_window_id_n += 1;
+                    }
+
+                    prev_window_id = prev_window_id_n;
                     continue;
                 }
             }
 
-            uint64_t window_id = id_to_first_window_id[overlaps[i]->t_id()] +
-                breaking_points[j].first / window_length_;
-            uint32_t window_start = (breaking_points[j].first / window_length_) *
-                window_length_;
+            uint64_t bpw1 = breaking_points[j].first / window_length_;
+            uint64_t bpw2 = breaking_points[j + 1].first / window_length_;
+
+            uint64_t window_id = id_to_first_window_id[overlaps[i]->t_id()] + bpw1;
+            if (bpw2 - bpw1 > 1) {
+                window_id += 1;
+            }
+            if (window_id == prev_window_id) {
+                window_id++;
+            }
+            prev_window_id = window_id;
+
+            uint32_t window_start = (window_id - id_to_first_window_id[overlaps[i]->t_id()]) * window_length_;
+            if (window_start > 0) {
+                window_start -= offset;
+            }
 
             const char* data = overlaps[i]->strand() ?
                 &(sequence->reverse_complement()[breaking_points[j].second]) :

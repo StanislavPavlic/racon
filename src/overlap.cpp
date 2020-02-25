@@ -229,15 +229,17 @@ void Overlap::find_breaking_points_from_cigar(uint32_t window_length, double p) 
     std::vector<int32_t> window_ends;
     int32_t offset = window_length * p;
     uint32_t end = t_end_ - offset;
+
     for (uint32_t i = 0; i < end; i += window_length) {
         if (i > t_begin_) {
-            if (i > t_begin_ + offset) {
-                window_starts.emplace_back(i - offset);
-            }
+            window_starts.emplace_back(std::max(t_begin_, i - window_length - offset));
             window_ends.emplace_back(i + offset - 1);
         }
     }
+    window_starts.emplace_back(t_end_ / window_length * window_length - offset);
     window_ends.emplace_back(t_end_ - 1);
+
+    window_starts.erase(window_starts.begin());
 
     uint32_t w = 0;
     bool found_first_match = false;
