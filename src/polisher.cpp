@@ -616,14 +616,18 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                         first_match_pos = j;
                         break;
                     }
-                    overlap += msa[0][j];
+                    if (msa[0][j] != '-') {
+                        overlap += msa[0][j];
+                    }
                 }
                 for (uint32_t j = len_msa - 1; j > 0; --j) {
                     if (msa[0][j] == msa[1][j]) {
                         last_match_pos = j;
                         break;
                     }
-                    right += msa[1][j];
+                    if (msa[1][j] != '-') {
+                        right += msa[1][j];
+                    }
                 }
                 if (first_match_pos == -1 || last_match_pos == -1) {
                     overlap = consensus_l.substr(start_l, len_l);
