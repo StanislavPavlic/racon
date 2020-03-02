@@ -626,24 +626,24 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                     right += msa[1][j];
                 }
                 if (first_match_pos == -1 || last_match_pos == -1) {
-                    fprintf(stderr, "[racon::polisher] error: "
-                                    "no matches found in msa\n");
-                    exit(1);
-                }
-                for (uint32_t j = first_match_pos; j <= last_match_pos; ++j) {
-                    if (msa[0][j] == msa[1][j]) {
-                        overlap += msa[0][j];
-                    } else if (msa[0][j] == '-') {
-                        overlap += msa[1][j];
-                    } else if (msa[1][j] == '-') {
-                        overlap += msa[0][j];
-                    } else {
-                        overlap += rand() % 2 ? msa[0][j] : msa[1][j];
+                    overlap = consensus_l.substr(start_l, len_l);
+                    right = consensus_r.substr(0, len_r);
+                } else {
+                    for (uint32_t j = first_match_pos; j <= last_match_pos; ++j) {
+                        if (msa[0][j] == msa[1][j]) {
+                            overlap += msa[0][j];
+                        } else if (msa[0][j] == '-') {
+                            overlap += msa[1][j];
+                        } else if (msa[1][j] == '-') {
+                            overlap += msa[0][j];
+                        } else {
+                            overlap += rand() % 2 ? msa[0][j] : msa[1][j];
+                        }
                     }
+                    std::reverse(right.begin(), right.end());
                 }
 
 //                polished_data += graph->generate_consensus() + consensus_r.substr(len_r, consensus_r.size() - len_r);
-                std::reverse(right.begin(), right.end());
                 polished_data += overlap + right + consensus_r.substr(len_r, consensus_r.size() - 2 * len_r);
 
                 graph->clear();
