@@ -170,7 +170,8 @@ Polisher::Polisher(std::unique_ptr<bioparser::Parser<Sequence>> sparser,
         alignment_engines_(), sequences_(), dummy_quality_(window_length, '!'),
         window_length_(window_length), overlap_percentage_(overlap_percentage), windows_(),
         thread_pool_(thread_pool::createThreadPool(num_threads)),
-        thread_to_id_(), logger_(new Logger()) {
+        thread_to_id_(), logger_(new Logger()),
+        match_(match), mismatch_(mismatch), gap_(gap) {
 
     uint32_t id = 0;
     for (const auto& it: thread_pool_->thread_identifiers()) {
@@ -542,34 +543,138 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
 
     uint64_t logger_step = thread_futures.size() / 20;
 
-    for (uint64_t i = 0; i < thread_futures.size(); ++i) {
-        thread_futures[i].wait();
+    if (overlap_percentage_ == 0) {
+        for (uint64_t i = 0; i < thread_futures.size(); ++i) {
+            thread_futures[i].wait();
 
-        num_polished_windows += thread_futures[i].get() == true ? 1 : 0;
-        polished_data += windows_[i]->consensus();
+            num_polished_windows += thread_futures[i].get() == true ? 1 : 0;
+            polished_data += windows_[i]->consensus();
 
-        if (i == windows_.size() - 1 || windows_[i + 1]->rank() == 0) {
-            double polished_ratio = num_polished_windows /
-                static_cast<double>(windows_[i]->rank() + 1);
+            if (i == windows_.size() - 1 || windows_[i + 1]->rank() == 0) {
+                double polished_ratio = num_polished_windows /
+                                        static_cast<double>(windows_[i]->rank() + 1);
 
-            if (!drop_unpolished_sequences || polished_ratio > 0) {
-                std::string tags = type_ == PolisherType::kF ? "r" : "";
-                tags += " LN:i:" + std::to_string(polished_data.size());
-                tags += " RC:i:" + std::to_string(targets_coverages_[windows_[i]->id()]);
-                tags += " XC:f:" + std::to_string(polished_ratio);
-                dst.emplace_back(createSequence(sequences_[windows_[i]->id()]->name() +
-                    tags, polished_data));
+                if (!drop_unpolished_sequences || polished_ratio > 0) {
+                    std::string tags = type_ == PolisherType::kF ? "r" : "";
+                    tags += " LN:i:" + std::to_string(polished_data.size());
+                    tags += " RC:i:" + std::to_string(targets_coverages_[windows_[i]->id()]);
+                    tags += " XC:f:" + std::to_string(polished_ratio);
+                    dst.emplace_back(createSequence(sequences_[windows_[i]->id()]->name() +
+                                                    tags, polished_data));
+                }
+
+                num_polished_windows = 0;
+                polished_data.clear();
+            }
+            windows_[i].reset();
+
+            if (logger_step != 0 && (i + 1) % logger_step == 0 && (i + 1) / logger_step < 20) {
+                logger_->bar("[racon::Polisher::polish] generating consensus");
+            }
+        }
+    } else {
+        double total_overlap = 2 * overlap_percentage_;
+        auto overlap_alignment_engine = spoa::createAlignmentEngine(spoa::AlignmentType::kOV, match_, mismatch_, gap_);
+        overlap_alignment_engine->prealloc((1 + total_overlap) * window_length_ * total_overlap * 1.2, 5);
+        auto graph = spoa::createGraph();
+
+        for (uint64_t i = 0; i < thread_futures.size(); ++i) {
+            thread_futures[i].wait();
+
+            num_polished_windows += thread_futures[i].get() == true ? 1 : 0;
+
+            if (windows_[i]->rank() == 0) {
+                auto& consensus = windows_[i]->consensus();
+                polished_data += consensus.substr(0, consensus.size() - total_overlap * consensus.size());
+            } else {
+                auto& consensus_l = windows_[i - 1]->consensus();
+                uint32_t len_l = consensus_l.size() * total_overlap;
+                uint32_t start_l = consensus_l.size() - len_l;
+
+                auto& consensus_r = windows_[i]->consensus();
+                uint32_t len_r = consensus_r.size() * total_overlap;
+                // TODO see how to best avoid using the whole window for last alignment
+                if (i == windows_.size() - 1 || windows_[i + 1]->rank() == 0) {
+                    len_r = consensus_r.size();
+                }
+
+                graph->add_alignment(spoa::Alignment(), &(consensus_l[start_l]), len_l);
+                spoa::Alignment alignment = overlap_alignment_engine->align(&(consensus_r[0]), len_r, graph);
+                graph->add_alignment(alignment, &(consensus_r[0]), len_r);
+
+                std::vector<std::string> msa;
+                graph->generate_multiple_sequence_alignment(msa);
+
+                std::string overlap = "";
+
+                uint32_t len_msa = msa[0].size();
+                uint32_t first_match_pos = -1;
+                uint32_t last_match_pos = -1;
+                std::string right = "";
+                for (uint32_t j = 0; j < len_msa; ++j) {
+                    if (msa[0][j] == msa[1][j]) {
+                        first_match_pos = j;
+                        break;
+                    }
+                    overlap += msa[0][j];
+                }
+                for (uint32_t j = len_msa - 1; j > 0; --j) {
+                    if (msa[0][j] == msa[1][j]) {
+                        last_match_pos = j;
+                        break;
+                    }
+                    right += msa[1][j];
+                }
+                if (first_match_pos == -1 || last_match_pos == -1) {
+                    fprintf(stderr, "[racon::polisher] error: "
+                                    "no matches found in msa\n");
+                    exit(1);
+                }
+                for (uint32_t j = first_match_pos; j <= last_match_pos; ++j) {
+                    if (msa[0][j] == msa[1][j]) {
+                        overlap += msa[0][j];
+                    } else if (msa[0][j] == '-') {
+                        overlap += msa[1][j];
+                    } else if (msa[1][j] == '-') {
+                        overlap += msa[0][j];
+                    } else {
+                        overlap += rand() % 2 ? msa[0][j] : msa[1][j];
+                    }
+                }
+
+//                polished_data += graph->generate_consensus() + consensus_r.substr(len_r, consensus_r.size() - len_r);
+                std::reverse(right.begin(), right.end());
+                polished_data += overlap + right + consensus_r.substr(len_r, consensus_r.size() - 2 * len_r);
+
+                graph->clear();
+                windows_[i - 1].reset();
+            }
+            if (i == windows_.size() - 1 || windows_[i + 1]->rank() == 0) {
+                auto& consensus = windows_[i]->consensus();
+                polished_data += consensus.substr(consensus.size() - consensus.size() * total_overlap);
+                double polished_ratio = num_polished_windows /
+                                        static_cast<double>(windows_[i]->rank() + 1);
+
+                if (!drop_unpolished_sequences || polished_ratio > 0) {
+                    std::string tags = type_ == PolisherType::kF ? "r" : "";
+                    tags += " LN:i:" + std::to_string(polished_data.size());
+                    tags += " RC:i:" + std::to_string(targets_coverages_[windows_[i]->id()]);
+                    tags += " XC:f:" + std::to_string(polished_ratio);
+                    dst.emplace_back(createSequence(sequences_[windows_[i]->id()]->name() +
+                                                    tags, polished_data));
+                }
+
+                num_polished_windows = 0;
+                polished_data.clear();
+                windows_[i].reset();
             }
 
-            num_polished_windows = 0;
-            polished_data.clear();
-        }
-        windows_[i].reset();
-
-        if (logger_step != 0 && (i + 1) % logger_step == 0 && (i + 1) / logger_step < 20) {
-            logger_->bar("[racon::Polisher::polish] generating consensus");
+            if (logger_step != 0 && (i + 1) % logger_step == 0 && (i + 1) / logger_step < 20) {
+                logger_->bar("[racon::Polisher::polish] generating consensus");
+            }
         }
     }
+
 
     if (logger_step != 0) {
         logger_->bar("[racon::Polisher::polish] generating consensus");

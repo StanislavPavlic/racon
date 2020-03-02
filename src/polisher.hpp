@@ -96,6 +96,10 @@ protected:
     std::unordered_map<std::thread::id, uint32_t> thread_to_id_;
 
     std::unique_ptr<Logger> logger_;
+
+    int8_t match_;
+    int8_t mismatch_;
+    int8_t gap_;
 };
 
 }
