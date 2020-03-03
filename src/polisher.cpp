@@ -534,7 +534,7 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                     exit(1);
                 }
                 return windows_[j]->generate_consensus(
-                    alignment_engines_[it->second], trim_);
+                    alignment_engines_[it->second], overlap_percentage_ == 0 ? trim_ : trim_);
             }, i));
     }
 
@@ -578,6 +578,8 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
         overlap_alignment_engine->prealloc((1 + total_overlap) * window_length_ * total_overlap * 1.2, 5);
         auto graph = spoa::createGraph();
 
+        uint32_t gap_count = 0;
+
         for (uint64_t i = 0; i < thread_futures.size(); ++i) {
             thread_futures[i].wait();
 
@@ -618,6 +620,8 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                     }
                     if (msa[0][j] != '-') {
                         overlap += msa[0][j];
+                    } else {
+                        gap_count++;
                     }
                 }
                 for (uint32_t j = len_msa - 1; j > 0; --j) {
@@ -627,6 +631,8 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                     }
                     if (msa[1][j] != '-') {
                         right += msa[1][j];
+                    } else {
+                        gap_count++;
                     }
                 }
                 if (first_match_pos == -1 || last_match_pos == -1) {
@@ -637,17 +643,19 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                         if (msa[0][j] == msa[1][j]) {
                             overlap += msa[0][j];
                         } else if (msa[0][j] == '-') {
-                            overlap += msa[1][j];
+                            gap_count++;
+//                            overlap += msa[1][j];
                         } else if (msa[1][j] == '-') {
-                            overlap += msa[0][j];
+                            gap_count++;
+//                            overlap += msa[0][j];
                         } else {
-                            overlap += rand() % 2 ? msa[0][j] : msa[1][j];
+                            overlap += msa[0][j];
+//                            overlap += rand() % 2 ? msa[0][j] : msa[1][j];
                         }
                     }
                     std::reverse(right.begin(), right.end());
                 }
 
-//                polished_data += graph->generate_consensus() + consensus_r.substr(len_r, consensus_r.size() - len_r);
                 polished_data += overlap + right + consensus_r.substr(len_r, consensus_r.size() - 2 * len_r);
 
                 graph->clear();
@@ -677,6 +685,7 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                 logger_->bar("[racon::Polisher::polish] generating consensus");
             }
         }
+//        fprintf(stderr, "\nTotal gaps in alignment: %u\n\n", gap_count);
     }
 
 
