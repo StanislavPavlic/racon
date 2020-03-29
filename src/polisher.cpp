@@ -167,7 +167,7 @@ Polisher::Polisher(std::unique_ptr<bioparser::Parser<Sequence>> sparser,
         : sparser_(std::move(sparser)), oparser_(std::move(oparser)),
         tparser_(std::move(tparser)), type_(type), quality_threshold_(
         quality_threshold), error_threshold_(error_threshold), trim_(trim),
-        alignment_engines_(), sequences_(), dummy_quality_(window_length, '!'),
+        alignment_engines_(), sequences_(), dummy_quality_(window_length * 2, '!'),
         window_length_(window_length), overlap_percentage_(overlap_percentage), windows_(),
         thread_pool_(thread_pool::createThreadPool(num_threads)),
         thread_to_id_(), logger_(new Logger()),
@@ -418,6 +418,7 @@ void Polisher::initialize() {
 
         for (uint32_t j = 0; j < breaking_points.size(); j += 2) {
             if (breaking_points[j + 1].second - breaking_points[j].second < 0.02 * window_length_) {
+//                fprintf(stderr, "too short skip\n");
                 continue;
             }
 
@@ -439,14 +440,21 @@ void Polisher::initialize() {
                     uint64_t prev_window_id_n = id_to_first_window_id[overlaps[i]->t_id()] + bpw1;
 
                     if (bpw2 - bpw1 > 1) {
-                        prev_window_id_n += 1;
+                        prev_window_id_n++;
+                    } else if (prev_window_id_n == prev_window_id) {
+                        prev_window_id_n++;
+                    } else if (breaking_points[j].first < bpw1 * window_length_ + offset
+                               && (j + 2 < breaking_points.size() && breaking_points[j].first == breaking_points[j + 2].first)) {
+                        prev_window_id_n--;
                     }
 
-                    if (prev_window_id_n == prev_window_id) {
-                        prev_window_id_n += 1;
-                    }
-
+//                    fprintf(stderr, "prev_window: %lu\n", prev_window_id);
                     prev_window_id = prev_window_id_n;
+/*                    fprintf(stderr, "low quality skip\n"
+                                    "bp: %lu - %lu, %lu - %lu | prev_window: %lu, prev_window_n: %lu\n",
+                            breaking_points[j].first, breaking_points[j + 1].first,
+                            breaking_points[j].second, breaking_points[j + 1].second,
+                            prev_window_id, prev_window_id_n);*/
                     continue;
                 }
             }
@@ -456,10 +464,12 @@ void Polisher::initialize() {
 
             uint64_t window_id = id_to_first_window_id[overlaps[i]->t_id()] + bpw1;
             if (bpw2 - bpw1 > 1) {
-                window_id += 1;
-            }
-            if (window_id == prev_window_id) {
                 window_id++;
+            } else if (window_id == prev_window_id) {
+                window_id++;
+            } else if (breaking_points[j].first < bpw1 * window_length_ + offset 
+                       && (j + 2 < breaking_points.size() && breaking_points[j].first == breaking_points[j + 2].first)) {
+                window_id--;
             }
             prev_window_id = window_id;
 
@@ -482,6 +492,11 @@ void Polisher::initialize() {
                     nullptr : &(sequence->quality()[breaking_points[j].second]));
             uint32_t quality_length = quality == nullptr ? 0 : data_length;
 
+/*            fprintf(stderr, "id: %lu | bp: %lu - %lu, %lu - %lu | start: %u\n", 
+                    window_id, 
+                    breaking_points[j].first, breaking_points[j+1].first,
+                    breaking_points[j].second, breaking_points[j+1].second,
+                    window_start);*/
             windows_[window_id]->add_layer(data, data_length,
                 quality, quality_length,
                 breaking_points[j].first - window_start,
@@ -534,7 +549,7 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                     exit(1);
                 }
                 return windows_[j]->generate_consensus(
-                    alignment_engines_[it->second], overlap_percentage_ == 0 ? trim_ : trim_);
+                    alignment_engines_[it->second], overlap_percentage_ == 0 ? trim_ : false);
             }, i));
     }
 
@@ -642,7 +657,8 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                     for (uint32_t j = first_match_pos; j <= last_match_pos; ++j) {
                         if (msa[0][j] == msa[1][j]) {
                             overlap += msa[0][j];
-                        } else if (msa[0][j] == '-') {
+                        }
+/*                        } else if (msa[0][j] == '-') {
                             gap_count++;
 //                            overlap += msa[1][j];
                         } else if (msa[1][j] == '-') {
@@ -651,7 +667,7 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                         } else {
                             overlap += msa[0][j];
 //                            overlap += rand() % 2 ? msa[0][j] : msa[1][j];
-                        }
+                        } */
                     }
                     std::reverse(right.begin(), right.end());
                 }
