@@ -396,7 +396,7 @@ void Polisher::initialize() {
             uint32_t length = std::min(start + window_length_ + expansion,
                 static_cast<uint32_t>(sequences_[i]->data().size())) - start;
 
-            windows_.emplace_back(createWindow(i, k, window_type,
+            windows_.emplace_back(createWindow(i, k, window_type, overlap_percentage_ != 0,
                 &(sequences_[i]->data()[start]), length,
                 sequences_[i]->quality().empty() ? &(dummy_quality_[0]) :
                 &(sequences_[i]->quality()[start]), length));
@@ -605,15 +605,18 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                 polished_data += consensus.substr(0, consensus.size() - total_overlap * consensus.size());
             } else {
                 auto& consensus_l = windows_[i - 1]->consensus();
+                auto& summary_l = windows_[i - 1]->summary();
                 uint32_t len_l = consensus_l.size() * total_overlap;
                 uint32_t start_l = consensus_l.size() - len_l;
 
                 auto& consensus_r = windows_[i]->consensus();
+                auto& summary_r = windows_[i]->summary();
                 uint32_t len_r = consensus_r.size() * total_overlap;
                 // TODO see how to best avoid using the whole window for last alignment
                 if (i == windows_.size() - 1 || windows_[i + 1]->rank() == 0) {
                     len_r = consensus_r.size();
                 }
+
 
                 graph->add_alignment(spoa::Alignment(), &(consensus_l[start_l]), len_l);
                 spoa::Alignment alignment = overlap_alignment_engine->align(&(consensus_r[0]), len_r, graph);
@@ -621,6 +624,51 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
 
                 std::vector<std::string> msa;
                 graph->generate_multiple_sequence_alignment(msa);
+
+                if (i % 1000 == 0) {
+                FILE* f = fopen("s.txt", "a");
+/*                std::string ls(&(consensus_l[start_l]), len_l);
+                std::string rs(&(consensus_r[0]), len_r);
+                fprintf(f, "%s\n%s\n\n", ls.c_str(), rs.c_str());
+*/                fprintf(stderr, "printing msas\n");
+                for (int row = 0; row < msa.size(); ++row) {
+                    fprintf(stderr, "%d\n", row);
+                    for (int col = 0; col < msa[row].size(); ++col) {
+                        fprintf(f, "%4c", msa[row][col]);
+                    }
+                    fprintf(f, "\n");
+                }
+                fprintf(f, "\n");
+
+                fprintf(stderr, "printing left\n");
+                for (int row = 0; row < 6; ++row) {
+                    fprintf(stderr, "row %d\n", row);
+                    for (int col = 0; col < consensus_l.size(); ++col) {
+                        if (row == 0) {
+                            fprintf(f, "%4c", consensus_l[col]);
+                        } else {
+                            fprintf(f, "%4u", summary_l[row * consensus_l.size() + col]);
+                        }
+                    }
+                    fprintf(f, "\n");
+                }
+                fprintf(f, "\n");
+                fprintf(stderr, "printing right\n");
+                for (int row = 0; row < 6; ++row) {
+                    fprintf(stderr, "row %d\n", row);
+                    for (int col = 0; col < consensus_r.size(); ++col) {
+                        if (row == 0) {
+                            fprintf(f, "%4c", consensus_r[col]);
+                        } else {
+                            fprintf(f, "%4u", summary_r[row * consensus_r.size() + col]);
+                        }
+                    }
+                    fprintf(f, "\n");
+                }
+                fprintf(f, "\n");
+                fprintf(stderr, "closing\n");
+                fclose(f);
+                }
 
                 std::string overlap = "";
 

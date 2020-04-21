@@ -24,7 +24,7 @@ enum class WindowType {
 };
 
 class Window;
-std::shared_ptr<Window> createWindow(uint64_t id, uint32_t rank, WindowType type,
+std::shared_ptr<Window> createWindow(uint64_t id, uint32_t rank, WindowType type, bool overlap,
     const char* backbone, uint32_t backbone_length, const char* quality,
     uint32_t quality_length);
 
@@ -44,6 +44,10 @@ public:
         return consensus_;
     }
 
+    const std::vector<uint32_t>& summary() const {
+        return summary_;
+    }
+
     bool generate_consensus(std::shared_ptr<spoa::AlignmentEngine> alignment_engine,
         bool trim);
 
@@ -52,14 +56,14 @@ public:
         uint32_t end);
 
     friend std::shared_ptr<Window> createWindow(uint64_t id, uint32_t rank,
-        WindowType type, const char* backbone, uint32_t backbone_length,
+        WindowType type, bool overlap, const char* backbone, uint32_t backbone_length,
         const char* quality, uint32_t quality_length);
 
 #ifdef CUDA_ENABLED
     friend class CUDABatchProcessor;
 #endif
 private:
-    Window(uint64_t id, uint32_t rank, WindowType type, const char* backbone,
+    Window(uint64_t id, uint32_t rank, WindowType type, bool overlap, const char* backbone,
         uint32_t backbone_length, const char* quality, uint32_t quality_length);
     Window(const Window&) = delete;
     const Window& operator=(const Window&) = delete;
@@ -67,7 +71,9 @@ private:
     uint64_t id_;
     uint32_t rank_;
     WindowType type_;
+    bool overlap_;
     std::string consensus_;
+    std::vector<uint32_t> summary_;
     std::vector<std::pair<const char*, uint32_t>> sequences_;
     std::vector<std::pair<const char*, uint32_t>> qualities_;
     std::vector<std::pair<uint32_t, uint32_t>> positions_;

@@ -12,7 +12,7 @@
 
 namespace racon {
 
-std::shared_ptr<Window> createWindow(uint64_t id, uint32_t rank, WindowType type,
+std::shared_ptr<Window> createWindow(uint64_t id, uint32_t rank, WindowType type, bool overlap,
     const char* backbone, uint32_t backbone_length, const char* quality,
     uint32_t quality_length) {
 
@@ -22,13 +22,13 @@ std::shared_ptr<Window> createWindow(uint64_t id, uint32_t rank, WindowType type
         exit(1);
     }
 
-    return std::shared_ptr<Window>(new Window(id, rank, type, backbone,
+    return std::shared_ptr<Window>(new Window(id, rank, type, overlap, backbone,
         backbone_length, quality, quality_length));
 }
 
-Window::Window(uint64_t id, uint32_t rank, WindowType type, const char* backbone,
+Window::Window(uint64_t id, uint32_t rank, WindowType type, bool overlap, const char* backbone,
     uint32_t backbone_length, const char* quality, uint32_t quality_length)
-        : id_(id), rank_(rank), type_(type), consensus_(), sequences_(),
+        : id_(id), rank_(rank), type_(type), overlap_(overlap), consensus_(), sequences_(),
         qualities_(), positions_() {
 
     sequences_.emplace_back(backbone, backbone_length);
@@ -113,10 +113,12 @@ bool Window::generate_consensus(std::shared_ptr<spoa::AlignmentEngine> alignment
         }
     }
 
-    std::vector<uint32_t> coverages;
-    consensus_ = graph->generate_consensus(coverages);
+//    std::vector<uint32_t> coverages;
+//    consensus_ = graph->generate_consensus(coverages);
 
     if (type_ == WindowType::kTGS && trim) {
+        std::vector<uint32_t> coverages;
+        consensus_ = graph->generate_consensus(coverages);
         uint32_t average_coverage = (sequences_.size() - 1) / 2;
 
         int32_t begin = 0, end = consensus_.size() - 1;
@@ -137,6 +139,10 @@ bool Window::generate_consensus(std::shared_ptr<spoa::AlignmentEngine> alignment
         } else {
             consensus_ = consensus_.substr(begin, end - begin + 1);
         }
+    } else if (overlap_ == true) {
+        consensus_ = graph->generate_consensus(summary_, true);
+    } else {
+        consensus_ = graph->generate_consensus();
     }
 
     return true;
