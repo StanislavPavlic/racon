@@ -500,7 +500,8 @@ void Polisher::initialize() {
             windows_[window_id]->add_layer(data, data_length,
                 quality, quality_length,
                 breaking_points[j].first - window_start,
-                breaking_points[j + 1].first - window_start - 1);
+                breaking_points[j + 1].first - window_start - 1,
+                overlaps[i]->q_id());
         }
 
         overlaps[i].reset();
@@ -559,6 +560,7 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
     uint64_t logger_step = thread_futures.size() / 20;
 
     if (overlap_percentage_ == 0) {
+        fprintf(stderr, "[racon::Polisher::polish] default mode\n");
         for (uint64_t i = 0; i < thread_futures.size(); ++i) {
             thread_futures[i].wait();
 
@@ -588,8 +590,9 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
             }
         }
     } else {
+        fprintf(stderr, "[racon::Polisher::polish] overlap mode\n");
         double total_overlap = 2 * overlap_percentage_;
-        auto overlap_alignment_engine = spoa::createAlignmentEngine(spoa::AlignmentType::kOV, match_, mismatch_, gap_);
+        auto overlap_alignment_engine = spoa::createAlignmentEngine(spoa::AlignmentType::kOV, 3, -5, -6);
         overlap_alignment_engine->prealloc((1 + total_overlap) * window_length_ * total_overlap * 1.2, 5);
         auto graph = spoa::createGraph();
 
@@ -606,17 +609,20 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
             } else {
                 auto& consensus_l = windows_[i - 1]->consensus();
                 auto& summary_l = windows_[i - 1]->summary();
+                auto& coder_l = windows_[i - 1]->coder();
+                uint32_t gap_line_l = summary_l.size() / consensus_l.size() - 1;
                 uint32_t len_l = consensus_l.size() * total_overlap;
                 uint32_t start_l = consensus_l.size() - len_l;
 
                 auto& consensus_r = windows_[i]->consensus();
                 auto& summary_r = windows_[i]->summary();
+                auto& coder_r = windows_[i]->coder();
+                uint32_t gap_line_r = summary_r.size() / consensus_r.size() - 1;
                 uint32_t len_r = consensus_r.size() * total_overlap;
                 // TODO see how to best avoid using the whole window for last alignment
                 if (i == windows_.size() - 1 || windows_[i + 1]->rank() == 0) {
                     len_r = consensus_r.size();
                 }
-
 
                 graph->add_alignment(spoa::Alignment(), &(consensus_l[start_l]), len_l);
                 spoa::Alignment alignment = overlap_alignment_engine->align(&(consensus_r[0]), len_r, graph);
@@ -625,56 +631,13 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                 std::vector<std::string> msa;
                 graph->generate_multiple_sequence_alignment(msa);
 
-                if (i % 1000 == 0) {
-                FILE* f = fopen("s.txt", "a");
-/*                std::string ls(&(consensus_l[start_l]), len_l);
-                std::string rs(&(consensus_r[0]), len_r);
-                fprintf(f, "%s\n%s\n\n", ls.c_str(), rs.c_str());
-*/                fprintf(stderr, "printing msas\n");
-                for (int row = 0; row < msa.size(); ++row) {
-                    fprintf(stderr, "%d\n", row);
-                    for (int col = 0; col < msa[row].size(); ++col) {
-                        fprintf(f, "%4c", msa[row][col]);
-                    }
-                    fprintf(f, "\n");
-                }
-                fprintf(f, "\n");
-
-                fprintf(stderr, "printing left\n");
-                for (int row = 0; row < 6; ++row) {
-                    fprintf(stderr, "row %d\n", row);
-                    for (int col = 0; col < consensus_l.size(); ++col) {
-                        if (row == 0) {
-                            fprintf(f, "%4c", consensus_l[col]);
-                        } else {
-                            fprintf(f, "%4u", summary_l[row * consensus_l.size() + col]);
-                        }
-                    }
-                    fprintf(f, "\n");
-                }
-                fprintf(f, "\n");
-                fprintf(stderr, "printing right\n");
-                for (int row = 0; row < 6; ++row) {
-                    fprintf(stderr, "row %d\n", row);
-                    for (int col = 0; col < consensus_r.size(); ++col) {
-                        if (row == 0) {
-                            fprintf(f, "%4c", consensus_r[col]);
-                        } else {
-                            fprintf(f, "%4u", summary_r[row * consensus_r.size() + col]);
-                        }
-                    }
-                    fprintf(f, "\n");
-                }
-                fprintf(f, "\n");
-                fprintf(stderr, "closing\n");
-                fclose(f);
-                }
-
                 std::string overlap = "";
 
                 uint32_t len_msa = msa[0].size();
                 uint32_t first_match_pos = -1;
                 uint32_t last_match_pos = -1;
+                uint32_t l_pos = start_l;
+                uint32_t r_pos = 0;
                 std::string right = "";
                 for (uint32_t j = 0; j < len_msa; ++j) {
                     if (msa[0][j] == msa[1][j]) {
@@ -683,8 +646,12 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                     }
                     if (msa[0][j] != '-') {
                         overlap += msa[0][j];
+                        l_pos++;
                     } else {
                         gap_count++;
+                    }
+                    if (msa[1][j] != '-') {
+                        r_pos++;
                     }
                 }
                 for (uint32_t j = len_msa - 1; j > 0; --j) {
@@ -705,17 +672,35 @@ void Polisher::polish(std::vector<std::unique_ptr<Sequence>>& dst,
                     for (uint32_t j = first_match_pos; j <= last_match_pos; ++j) {
                         if (msa[0][j] == msa[1][j]) {
                             overlap += msa[0][j];
-                        }
-/*                        } else if (msa[0][j] == '-') {
-                            gap_count++;
-//                            overlap += msa[1][j];
+                            l_pos++;
+                            r_pos++;
+                        } else if (msa[0][j] == '-') {
+                            r_pos++;
                         } else if (msa[1][j] == '-') {
-                            gap_count++;
-//                            overlap += msa[0][j];
-                        } else {
-                            overlap += msa[0][j];
-//                            overlap += rand() % 2 ? msa[0][j] : msa[1][j];
-                        } */
+                            l_pos++;
+                        } else if (msa[0][j] != '-' && msa[1][j] != '-') {
+                            uint32_t gaps = 0;
+                            uint32_t l = 0;
+                            uint32_t r = 0;
+                            if (summary_l.size() && msa[0][j] != '-') {
+                                gaps += summary_l[gap_line_l * consensus_l.size() + l_pos];
+                                l = summary_l[coder_l[msa[0][j]] * consensus_l.size() + l_pos];
+                            }
+                            if (summary_r.size() && msa[1][j] != '-') {
+                                gaps += summary_r[gap_line_r * consensus_r.size() + r_pos];
+                                r = summary_r[coder_r[msa[1][j]] * consensus_r.size() + r_pos];
+                            }
+                            if (std::max({gaps, l, r}) == gaps) {
+                                continue;
+                            }
+                            overlap += msa[l > r ? 0 : 1][j];
+                            if (msa[0][j] == '-') {
+                                r_pos++;
+                            }
+                            if (msa[1][j] == '-') {
+                                l_pos++;
+                            }
+                        }                    
                     }
                     std::reverse(right.begin(), right.end());
                 }

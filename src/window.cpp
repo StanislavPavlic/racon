@@ -5,6 +5,7 @@
  */
 
 #include <algorithm>
+#include <string>
 
 #include "window.hpp"
 
@@ -28,19 +29,20 @@ std::shared_ptr<Window> createWindow(uint64_t id, uint32_t rank, WindowType type
 
 Window::Window(uint64_t id, uint32_t rank, WindowType type, bool overlap, const char* backbone,
     uint32_t backbone_length, const char* quality, uint32_t quality_length)
-        : id_(id), rank_(rank), type_(type), overlap_(overlap), consensus_(), sequences_(),
-        qualities_(), positions_() {
+        : id_(id), rank_(rank), type_(type), overlap_(overlap), consensus_(), summary_(),
+        coder_(), sequences_(), qualities_(), positions_(), q_ids_() {
 
     sequences_.emplace_back(backbone, backbone_length);
     qualities_.emplace_back(quality, quality_length);
     positions_.emplace_back(0, 0);
+    q_ids_.emplace_back(-1);
 }
 
 Window::~Window() {
 }
 
 void Window::add_layer(const char* sequence, uint32_t sequence_length,
-    const char* quality, uint32_t quality_length, uint32_t begin, uint32_t end) {
+    const char* quality, uint32_t quality_length, uint32_t begin, uint32_t end, uint32_t q_id) {
 
     if (sequence_length == 0 || begin == end) {
         return;
@@ -61,6 +63,7 @@ void Window::add_layer(const char* sequence, uint32_t sequence_length,
     sequences_.emplace_back(sequence, sequence_length);
     qualities_.emplace_back(quality, quality_length);
     positions_.emplace_back(begin, end);
+    q_ids_.emplace_back(q_id);
 }
 
 bool Window::generate_consensus(std::shared_ptr<spoa::AlignmentEngine> alignment_engine,
@@ -85,7 +88,7 @@ bool Window::generate_consensus(std::shared_ptr<spoa::AlignmentEngine> alignment
     std::sort(rank.begin() + 1, rank.end(), [&](uint32_t lhs, uint32_t rhs) {
         return positions_[lhs].first < positions_[rhs].first; });
 
-    uint32_t offset = 0.01 * sequences_.front().second;
+   uint32_t offset = 0.01 * sequences_.front().second;
     for (uint32_t j = 1; j < sequences_.size(); ++j) {
         uint32_t i = rank[j];
 
@@ -141,6 +144,7 @@ bool Window::generate_consensus(std::shared_ptr<spoa::AlignmentEngine> alignment
         }
     } else if (overlap_ == true) {
         consensus_ = graph->generate_consensus(summary_, true);
+        coder_ = graph->coder();
     } else {
         consensus_ = graph->generate_consensus();
     }

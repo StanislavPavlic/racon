@@ -48,12 +48,24 @@ public:
         return summary_;
     }
 
+    const std::vector<int32_t>& coder() const {
+        return coder_;
+    }
+
+    const std::vector<uint32_t>& q_ids() const {
+        return q_ids_;
+    }
+
+    const std::vector<std::pair<uint32_t, uint32_t>>& positions() const {
+        return positions_;
+    }
+
     bool generate_consensus(std::shared_ptr<spoa::AlignmentEngine> alignment_engine,
         bool trim);
 
     void add_layer(const char* sequence, uint32_t sequence_length,
         const char* quality, uint32_t quality_length, uint32_t begin,
-        uint32_t end);
+        uint32_t end, uint32_t q_id);
 
     friend std::shared_ptr<Window> createWindow(uint64_t id, uint32_t rank,
         WindowType type, bool overlap, const char* backbone, uint32_t backbone_length,
@@ -74,9 +86,11 @@ private:
     bool overlap_;
     std::string consensus_;
     std::vector<uint32_t> summary_;
+    std::vector<int32_t> coder_;
     std::vector<std::pair<const char*, uint32_t>> sequences_;
     std::vector<std::pair<const char*, uint32_t>> qualities_;
     std::vector<std::pair<uint32_t, uint32_t>> positions_;
+    std::vector<uint32_t> q_ids_;
 };
 
 }
